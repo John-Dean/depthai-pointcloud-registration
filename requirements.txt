@@ -1,0 +1,3 @@
+depthai==2.13.3.0
+numpy
+open3d==0.14.1.0; platform_machine != "armv7l" and python_version < "3.9"
