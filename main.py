@@ -292,11 +292,11 @@ with contextlib.ExitStack() as stack:
 						# source_down.transform(result_icp.transformation)
 						# transforms[i] = np.dot(result_icp.transformation, transforms[i])
 						
-						all_pointclouds[i] = source_down
-						all_pointclouds[0] = target_down						
+						# all_pointclouds[i] = source_down
+						# all_pointclouds[0] = target_down						
 				
 				# If we actually have >1 camera
-				if i > 1:
+				if len(devices_info) > 1:
 					pose_graph = align_clouds(all_pointclouds, voxel_size)
 					
 					for i in range(len(devices_info)):
