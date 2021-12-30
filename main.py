@@ -56,7 +56,7 @@ pipeline = create_pipeline()
 # http://www.open3d.org/docs/latest/tutorial/pipelines/global_registration.html
 
 def preprocess_point_cloud(pcd, voxel_size):
-	pcd = pcd.voxel_down_sample(voxel_size)
+	# pcd = pcd.voxel_down_sample(voxel_size)
 	
 	radius_normal = voxel_size * 2
 	pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
@@ -173,8 +173,7 @@ def align_clouds(all_pointclouds, voxel_size):
 
 	option = o3d.pipelines.registration.GlobalOptimizationOption(
 		max_correspondence_distance=max_correspondence_distance_fine,
-		edge_prune_threshold=0.25,
-		reference_node=-1)
+		edge_prune_threshold=0.25)
 	with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
 		o3d.pipelines.registration.global_optimization(
 			pose_graph,
@@ -264,16 +263,22 @@ with contextlib.ExitStack() as stack:
 				
 				for i in range(len(devices_info)):
 					if len(transforms) <= i:
-						transforms.append(np.identity(4))
+						transforms.append([])
 						
 					if len(all_pointclouds) <= i:
 						all_pointclouds.append(None)
 					
-					if i == 0:
-						transforms[i] = np.identity(4)
-					else:
-						source = merged_clouds[i] #devices_info[i].pointcloud_generator.pcl;
-						target = merged_clouds[0] #devices_info[0].pointcloud_generator.pcl;
+					if i > 0:
+						# source =devices_info[i].pointcloud_generator.pcl;
+						# target = devices_info[0].pointcloud_generator.pcl;
+						source = merged_clouds[i]
+						target = merged_clouds[0]
+						
+						source.estimate_normals()
+						target.estimate_normals()
+						
+						all_pointclouds[i] = source.voxel_down_sample(voxel_size);
+						all_pointclouds[0] = target.voxel_down_sample(voxel_size);
 						
 						source, target, source_down, target_down, source_fpfh, target_fpfh = prepare_dataset(voxel_size, source, target)
 						
@@ -284,34 +289,40 @@ with contextlib.ExitStack() as stack:
 						print(result_ransac)
 						
 						source_down.transform(result_ransac.transformation)
-						transforms[i] = result_ransac.transformation;
+						transforms[i].append(result_ransac.transformation);
 						
 						# On or off this seems to not help
 						# result_icp = refine_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size)
 						# print(result_icp)
 						# source_down.transform(result_icp.transformation)
-						# transforms[i] = np.dot(result_icp.transformation, transforms[i])
+						# transforms[i].append(result_icp.transformation);
 						
-						all_pointclouds[i] = source_down
-						all_pointclouds[0] = target_down						
+						# all_pointclouds[i] = source_down
+						# all_pointclouds[0] = target_down						
 				
 				# If we actually have >1 camera
-				if len(devices_info) > 1:
-					pose_graph = align_clouds(all_pointclouds, voxel_size)
+				# if len(devices_info) > 1:
+				# 	pose_graph = align_clouds(all_pointclouds, voxel_size)
 					
-					for i in range(len(devices_info)):
-						transforms[i] = np.dot(pose_graph.nodes[i].pose, transforms[i])
+				# 	for i in range(len(devices_info)):
+				# 		all_pointclouds[i].transform(pose_graph.nodes[i].pose)
+				# 		transforms[i].append(pose_graph.nodes[i].pose);
+						
+						
 				
 			else:
-				voxel_size = 0.05
+				voxel_size = 0.01
 				combined_cloud = o3d.geometry.PointCloud()
 				for i in range(len(devices_info)):
-					source = devices_info[i].pointcloud_generator.pcl;
+					source = all_pointclouds[i] #devices_info[i].pointcloud_generator.pcl;
 					
 					source_temp = copy.deepcopy(source)
 					source_temp = source_temp.voxel_down_sample(voxel_size)
-				
-					source_temp.transform(transforms[i])
+					
+					if i > 0:
+						transform = transforms[i];
+						for n in range(len(transform)):
+							source_temp.transform(transform[n])
 				
 					combined_cloud +=	source_temp
 				
