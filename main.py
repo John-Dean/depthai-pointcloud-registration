@@ -95,72 +95,76 @@ def execute_global_registration(source_down, target_down, source_fpfh, target_fp
 	return result
 
 def execute_fast_global_registration(source_down, target_down, source_fpfh,
-                                     target_fpfh, voxel_size):
-    distance_threshold = voxel_size * 0.5
-    print(":: Apply fast global registration with distance threshold %.3f" \
-            % distance_threshold)
-    result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
-        source_down, target_down, source_fpfh, target_fpfh,
-        o3d.pipelines.registration.FastGlobalRegistrationOption(
-            maximum_correspondence_distance=distance_threshold))
-    return result
+									 target_fpfh, voxel_size):
+	distance_threshold = voxel_size * 0.5
+	print(":: Apply fast global registration with distance threshold %.3f" \
+			% distance_threshold)
+	result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+		source_down, target_down, source_fpfh, target_fpfh,
+		o3d.pipelines.registration.FastGlobalRegistrationOption(
+			maximum_correspondence_distance=distance_threshold))
+	return result
 
-def refine_registration(source, target, source_fpfh, target_fpfh, voxel_size):
-    distance_threshold = voxel_size * 0.4
-    print(":: Point-to-plane ICP registration is applied on original point")
-    print("   clouds to refine the alignment. This time we use a strict")
-    print("   distance threshold %.3f." % distance_threshold)
-    result = o3d.pipelines.registration.registration_icp(
-        source, target, distance_threshold, result_ransac.transformation,
-        o3d.pipelines.registration.TransformationEstimationPointToPlane())
-    return result
+def refine_registration(source, target, voxel_size, current_transform, distance_threshold = None):
+	if distance_threshold == None:
+		distance_threshold = voxel_size * 0.4
+	print(":: Point-to-plane ICP registration is applied on original point")
+	print("   clouds to refine the alignment. This time we use a strict")
+	print("   distance threshold %.3f." % distance_threshold)
+	method = o3d.pipelines.registration.TransformationEstimationPointToPlane();
+	# method = o3d.pipelines.registration.TransformationEstimationPointToPoint();
+	
+	result = o3d.pipelines.registration.registration_icp(
+		source, target, distance_threshold, current_transform,
+		method)
+	return result
 
 # http://www.open3d.org/docs/latest/tutorial/Advanced/multiway_registration.html
-def pairwise_registration(source, target,max_correspondence_distance_coarse, max_correspondence_distance_fine):
-    print("Apply point-to-plane ICP")
-    icp_coarse = o3d.pipelines.registration.registration_icp(
-        source, target, max_correspondence_distance_coarse, np.identity(4),
-        o3d.pipelines.registration.TransformationEstimationPointToPlane())
-    icp_fine = o3d.pipelines.registration.registration_icp(
-        source, target, max_correspondence_distance_fine,
-        icp_coarse.transformation,
-        o3d.pipelines.registration.TransformationEstimationPointToPlane())
-    transformation_icp = icp_fine.transformation
-    information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
-        source, target, max_correspondence_distance_fine,
-        icp_fine.transformation)
-    return transformation_icp, information_icp
+def pairwise_registration(source, target,max_correspondence_distance_coarse, max_correspondence_distance_fine, base_transform = np.identity(4)):
+	print("Apply point-to-plane ICP")
+	icp_coarse = o3d.pipelines.registration.registration_icp(
+		source, target, max_correspondence_distance_coarse, base_transform,
+		o3d.pipelines.registration.TransformationEstimationPointToPlane())
+	icp_fine = o3d.pipelines.registration.registration_icp(
+		source, target, max_correspondence_distance_fine,
+		icp_coarse.transformation,
+		o3d.pipelines.registration.TransformationEstimationPointToPlane())
+	transformation_icp = icp_fine.transformation
+	information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+		source, target, max_correspondence_distance_fine,
+		icp_fine.transformation)
+	return transformation_icp, information_icp
 
-def full_registration(pcds, max_correspondence_distance_coarse,
-                      max_correspondence_distance_fine):
-    pose_graph = o3d.pipelines.registration.PoseGraph()
-    odometry = np.identity(4)
-    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
-    n_pcds = len(pcds)
-    for source_id in range(n_pcds):
-        for target_id in range(source_id + 1, n_pcds):
-            transformation_icp, information_icp = pairwise_registration(
-                pcds[source_id], pcds[target_id], max_correspondence_distance_coarse, max_correspondence_distance_fine)
-            print("Build o3d.pipelines.registration.PoseGraph")
-            if target_id == source_id + 1:  # odometry case
-                odometry = np.dot(transformation_icp, odometry)
-                pose_graph.nodes.append(
-                    o3d.pipelines.registration.PoseGraphNode(
-                        np.linalg.inv(odometry)))
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=False))
-            else:  # loop closure case
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=True))
-    return pose_graph
+def full_registration(pointclouds, max_correspondence_distance_coarse,
+					  max_correspondence_distance_fine, transforms):
+	pose_graph = o3d.pipelines.registration.PoseGraph()
+	odometry = np.identity(4)
+	pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
+	n_pointclouds = len(pointclouds)
+	for source_id in range(n_pointclouds):
+		for target_id in range(source_id + 1, n_pointclouds):
+			transformation_icp, information_icp = pairwise_registration(
+				pointclouds[source_id], pointclouds[target_id], max_correspondence_distance_coarse, max_correspondence_distance_fine)
+			print("Build o3d.pipelines.registration.PoseGraph")
+			if target_id == source_id + 1:  # odometry case
+				odometry = np.dot(transformation_icp, odometry)
+				pose_graph.nodes.append(
+					o3d.pipelines.registration.PoseGraphNode(
+						np.linalg.inv(odometry)))
+				pose_graph.edges.append(
+					o3d.pipelines.registration.PoseGraphEdge(source_id,
+															 target_id,
+															 transformation_icp,
+															 information_icp,
+															 uncertain=False))
+			else:  # loop closure case
+				pose_graph.edges.append(
+					o3d.pipelines.registration.PoseGraphEdge(source_id,
+															 target_id,
+															 transformation_icp,
+															 information_icp,
+															 uncertain=True))
+	return pose_graph
 
 def align_clouds(all_pointclouds, voxel_size):
 	max_correspondence_distance_coarse = voxel_size * 15
@@ -263,16 +267,16 @@ with contextlib.ExitStack() as stack:
 				
 				for i in range(len(devices_info)):
 					if len(transforms) <= i:
-						transforms.append([])
+						transforms.append(np.identity(4))
 						
 					if len(all_pointclouds) <= i:
 						all_pointclouds.append(None)
 					
-					if i > 0:
-						# source =devices_info[i].pointcloud_generator.pcl;
-						# target = devices_info[0].pointcloud_generator.pcl;
-						source = merged_clouds[i]
-						target = merged_clouds[0]
+					if i == 0:
+						transforms[i] = np.identity(4)
+					else:
+						source = copy.deepcopy(merged_clouds[i])
+						target = copy.deepcopy(merged_clouds[0])
 						
 						source.estimate_normals()
 						target.estimate_normals()
@@ -288,17 +292,23 @@ with contextlib.ExitStack() as stack:
 															
 						print(result_ransac)
 						
-						source_down.transform(result_ransac.transformation)
-						transforms[i].append(result_ransac.transformation);
+						transforms[i] = result_ransac.transformation;
 						
 						# On or off this seems to not help
-						# result_icp = refine_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size)
-						# print(result_icp)
-						# source_down.transform(result_icp.transformation)
-						# transforms[i].append(result_icp.transformation);
+						result_icp = refine_registration(source, target, voxel_size, transforms[i])
+						print(result_icp)
+						transforms[i] = result_icp.transformation;
 						
-						# all_pointclouds[i] = source_down
-						# all_pointclouds[0] = target_down						
+						# For kicks, let's try refine it again, but tighter
+						result_icp = refine_registration(source, target, voxel_size, transforms[i], voxel_size * 0.1)
+						print(result_icp)
+						transforms[i] = result_icp.transformation;
+						
+						
+						# And one finalt ime
+						result_icp = refine_registration(source, target, voxel_size, transforms[i], voxel_size * 0.01)
+						print(result_icp)
+						transforms[i] = result_icp.transformation;
 				
 				# If we actually have >1 camera
 				# if len(devices_info) > 1:
@@ -314,15 +324,12 @@ with contextlib.ExitStack() as stack:
 				voxel_size = 0.01
 				combined_cloud = o3d.geometry.PointCloud()
 				for i in range(len(devices_info)):
-					source = all_pointclouds[i] #devices_info[i].pointcloud_generator.pcl;
+					source = devices_info[i].pointcloud_generator.pcl;
 					
 					source_temp = copy.deepcopy(source)
 					source_temp = source_temp.voxel_down_sample(voxel_size)
 					
-					if i > 0:
-						transform = transforms[i];
-						for n in range(len(transform)):
-							source_temp.transform(transform[n])
+					source_temp.transform(transforms[i])
 				
 					combined_cloud +=	source_temp
 				
