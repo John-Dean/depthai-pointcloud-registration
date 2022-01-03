@@ -12,79 +12,7 @@ import open3d as o3d
 import dai_pipeline
 import pointcloud_alignment
 
-
 pipeline = dai_pipeline.create_pipeline()
-
-# http://www.open3d.org/docs/latest/tutorial/pipelines/global_registration.html
-
-
-# http://www.open3d.org/docs/latest/tutorial/Advanced/multiway_registration.html
-def pairwise_registration(source, target,max_correspondence_distance_coarse, max_correspondence_distance_fine, base_transform = np.identity(4)):
-	print("Apply point-to-plane ICP")
-	icp_coarse = o3d.pipelines.registration.registration_icp(
-		source, target, max_correspondence_distance_coarse, base_transform,
-		o3d.pipelines.registration.TransformationEstimationPointToPlane())
-	icp_fine = o3d.pipelines.registration.registration_icp(
-		source, target, max_correspondence_distance_fine,
-		icp_coarse.transformation,
-		o3d.pipelines.registration.TransformationEstimationPointToPlane())
-	transformation_icp = icp_fine.transformation
-	information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
-		source, target, max_correspondence_distance_fine,
-		icp_fine.transformation)
-	return transformation_icp, information_icp
-
-def full_registration(pointclouds, max_correspondence_distance_coarse,
-					  max_correspondence_distance_fine, transforms):
-	pose_graph = o3d.pipelines.registration.PoseGraph()
-	odometry = np.identity(4)
-	pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
-	n_pointclouds = len(pointclouds)
-	for source_id in range(n_pointclouds):
-		for target_id in range(source_id + 1, n_pointclouds):
-			transformation_icp, information_icp = pairwise_registration(
-				pointclouds[source_id], pointclouds[target_id], max_correspondence_distance_coarse, max_correspondence_distance_fine)
-			print("Build o3d.pipelines.registration.PoseGraph")
-			if target_id == source_id + 1:  # odometry case
-				odometry = np.dot(transformation_icp, odometry)
-				pose_graph.nodes.append(
-					o3d.pipelines.registration.PoseGraphNode(
-						np.linalg.inv(odometry)))
-				pose_graph.edges.append(
-					o3d.pipelines.registration.PoseGraphEdge(source_id,
-															 target_id,
-															 transformation_icp,
-															 information_icp,
-															 uncertain=False))
-			else:  # loop closure case
-				pose_graph.edges.append(
-					o3d.pipelines.registration.PoseGraphEdge(source_id,
-															 target_id,
-															 transformation_icp,
-															 information_icp,
-															 uncertain=True))
-	return pose_graph
-
-def align_clouds(all_pointclouds, voxel_size):
-	max_correspondence_distance_coarse = voxel_size * 15
-	max_correspondence_distance_fine = voxel_size * 1
-	with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-		pose_graph = full_registration(all_pointclouds,
-					max_correspondence_distance_coarse,
-					max_correspondence_distance_fine)
-
-
-	option = o3d.pipelines.registration.GlobalOptimizationOption(
-		max_correspondence_distance=max_correspondence_distance_fine,
-		edge_prune_threshold=0.25)
-	with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-		o3d.pipelines.registration.global_optimization(
-			pose_graph,
-			o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
-			o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
-			option)
-	
-	return pose_graph
 				
 queue_frames	=	5
 visualizer = None
@@ -153,15 +81,6 @@ with contextlib.ExitStack() as stack:
 						transforms[i] = np.identity(4)
 					else:
 						transforms[i] = pointcloud_alignment.align_two_pointclouds(merged_clouds[i], merged_clouds[0])[0]
-				
-				# If we actually have >1 camera
-				# if len(devices_info) > 1:
-				# 	pose_graph = align_clouds(all_pointclouds, voxel_size)
-					
-				# 	for i in range(len(devices_info)):
-				# 		all_pointclouds[i].transform(pose_graph.nodes[i].pose)
-				# 		transforms[i].append(pose_graph.nodes[i].pose);
-						
 						
 				
 			else:					

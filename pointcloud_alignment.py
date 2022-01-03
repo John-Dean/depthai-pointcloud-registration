@@ -2,6 +2,9 @@ import numpy as np
 import copy
 import open3d as o3d
 
+# http://www.open3d.org/docs/latest/tutorial/pipelines/global_registration.html
+# http://www.open3d.org/docs/latest/tutorial/Advanced/multiway_registration.html
+
 def preprocess_point_cloud(pointcloud, voxel_size):
 	pointcloud.voxel_down_sample(voxel_size)
 	
@@ -56,14 +59,13 @@ def execute_fast_global_registration(source_down, target_down, source_fpfh,
 			maximum_correspondence_distance=distance_threshold))
 	return result
 
-def refine_registration(source, target, voxel_size, current_transform, distance_threshold = None):
+def refine_registration(source, target, voxel_size, current_transform, distance_threshold = None, method = o3d.pipelines.registration.TransformationEstimationPointToPoint()):
 	if distance_threshold == None:
 		distance_threshold = voxel_size * 0.4
 	print(":: Point-to-plane ICP registration is applied on original point")
 	print("   clouds to refine the alignment. This time we use a strict")
 	print("   distance threshold %.3f." % distance_threshold)
 	# method = o3d.pipelines.registration.TransformationEstimationPointToPlane();
-	method = o3d.pipelines.registration.TransformationEstimationPointToPoint();
 	
 	result = o3d.pipelines.registration.registration_icp(source, target, distance_threshold, current_transform, method)
 	return result
@@ -85,18 +87,16 @@ def align_two_pointclouds(pointcloud_to_align, target_pointcloud, voxel_size = 0
 	
 	transform = result_ransac.transformation;
 	
-	# On or off this seems to not help
-	result_icp = refine_registration(source, target, voxel_size, transform)
-	print(result_icp)
-	transform = result_icp.transformation;
+	# # On or off this seems to not help
+	# result_icp = refine_registration(source, target, voxel_size, transform, voxel_size * 0.4, o3d.pipelines.registration.TransformationEstimationPointToPoint())
+	# print(result_icp)
+	# transform = result_icp.transformation;
 	
-	# For kicks, let's try refine it again, but tighter
-	result_icp = refine_registration(source, target, voxel_size, transform, voxel_size * 0.1)
-	print(result_icp)
-	transform = result_icp.transformation;
+	source.estimate_covariances()
+	target.estimate_covariances()
 	
-	# And one final time
-	result_icp = refine_registration(source, target, voxel_size, transform, voxel_size * 0.01)
+	
+	result_icp = refine_registration(source, target, voxel_size, transform, voxel_size * 0.01, o3d.pipelines.registration.TransformationEstimationForGeneralizedICP())
 	print(result_icp)
 	transform = result_icp.transformation;
 	
